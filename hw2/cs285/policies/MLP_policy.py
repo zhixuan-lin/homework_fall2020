@@ -87,7 +87,16 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # query the policy with observation(s) to get selected action(s)
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # TODO: get this from hw1
-        return action
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        # TODO return the action that the policy prescribes
+        # Note, not differentiable.
+        with torch.no_grad():
+            obs = torch.FloatTensor(observation, device=ptu.device)
+            return ptu.to_numpy(self.forward(obs).sample())
 
     # update/train this policy
     def update(self, observations, actions, **kwargs):
@@ -100,7 +109,12 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # `torch.distributions.Distribution` object. It's up to you!
     def forward(self, observation: torch.FloatTensor):
         # TODO: get this from hw1
-        return action_distribution
+        if self.discrete:
+            logits = self.logits_na(observation)
+            return torch.distributions.Categorical(logits=logits)
+        else:
+            mean = self.mean_net(observation)
+            return torch.distributions.Normal(mean, torch.exp(self.logstd))
 
 
 #####################################################
@@ -125,20 +139,32 @@ class MLPPolicyPG(MLPPolicy):
             # by the `forward` method
         # HINT3: don't forget that `optimizer.step()` MINIMIZES a loss
 
-        loss = TODO
+        action_dist = self.forward(observations)
+        # Average over action dimension and batch
+        log_prob = action_dist.log_prob(actions)
+        # Make log_prob and advantages the same shape
+        advantages = advantages.view(-1, *([1] * (log_prob.ndim - 1)))
+        assert log_prob.ndim == advantages.ndim
+
+        loss = -torch.mean(advantages * log_prob)
 
         # TODO: optimize `loss` using `self.optimizer`
         # HINT: remember to `zero_grad` first
-        TODO
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
         if self.nn_baseline:
             ## TODO: normalize the q_values to have a mean of zero and a standard deviation of one
             ## HINT: there is a `normalize` function in `infrastructure.utils`
-            targets = TODO
+            mean, std = np.mean(q_values), np.std(q_values)
+            from cs285.infrastructure.utils import normalize
+            targets = normalize(q_values, mean, std)
             targets = ptu.from_numpy(targets)
 
             ## TODO: use the `forward` method of `self.baseline` to get baseline predictions
-            baseline_predictions = TODO
+            baseline_predictions = self.baseline(observations)
+            baseline_predictions = baseline_predictions.squeeze(1)
             
             ## avoid any subtle broadcasting bugs that can arise when dealing with arrays of shape
             ## [ N ] versus shape [ N x 1 ]
@@ -147,11 +173,14 @@ class MLPPolicyPG(MLPPolicy):
             
             # TODO: compute the loss that should be optimized for training the baseline MLP (`self.baseline`)
             # HINT: use `F.mse_loss`
-            baseline_loss = TODO
+            baseline_loss = F.mse_loss(baseline_predictions, targets)
 
             # TODO: optimize `baseline_loss` using `self.baseline_optimizer`
             # HINT: remember to `zero_grad` first
-            TODO
+            self.baseline_optimizer.zero_grad()
+            baseline_loss.backward()
+            self.baseline_optimizer.step()
+
 
         train_log = {
             'Training Loss': ptu.to_numpy(loss),
