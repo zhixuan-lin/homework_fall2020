@@ -87,6 +87,16 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # query the policy with observation(s) to get selected action(s)
     def get_action(self, obs: np.ndarray) -> np.ndarray:
         # TODO: get this from Piazza
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        # TODO return the action that the policy prescribes
+        # Note, not differentiable.
+        with torch.no_grad():
+            obs = torch.FloatTensor(observation, device=ptu.device)
+            action = ptu.to_numpy(self.forward(obs).sample())
         return action
 
     # update/train this policy
@@ -100,6 +110,14 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     # `torch.distributions.Distribution` object. It's up to you!
     def forward(self, observation: torch.FloatTensor):
         # TODO: get this from Piazza
+                # TODO: get this from hw1
+        if self.discrete:
+            logits = self.logits_na(observation)
+            action_distribution = torch.distributions.Categorical(logits=logits)
+        else:
+            mean = self.mean_net(observation)
+            action_distribution = torch.distributions.Normal(mean, torch.exp(self.logstd))
+
         return action_distribution
 
 
@@ -110,5 +128,36 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 class MLPPolicyAC(MLPPolicy):
     def update(self, observations, actions, adv_n=None):
         # TODO: update the policy and return the loss
-        loss = TODO
+        observations = ptu.from_numpy(observations)
+        actions = ptu.from_numpy(actions)
+        advantages = ptu.from_numpy(adv_n)
+
+        # TODO: compute the loss that should be optimized when training with policy gradient
+        # HINT1: Recall that the expression that we want to MAXIMIZE
+            # is the expectation over collected trajectories of:
+            # sum_{t=0}^{T-1} [grad [log pi(a_t|s_t) * (Q_t - b_t)]]
+        # HINT2: you will want to use the `log_prob` method on the distribution returned
+            # by the `forward` method
+        # HINT3: don't forget that `optimizer.step()` MINIMIZES a loss
+
+        action_dist = self.forward(observations)
+        # Average over action dimension and batch
+        log_prob = action_dist.log_prob(actions)
+        # Make log_prob and advantages the same shape
+        advantages = advantages.view(-1, *([1] * (log_prob.ndim - 1)))
+        assert log_prob.ndim == advantages.ndim
+
+        loss = -torch.mean(advantages * log_prob)
+
+        # TODO: optimize `loss` using `self.optimizer`
+        # HINT: remember to `zero_grad` first
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # train_log = {
+        #     'Training Loss': ptu.to_numpy(loss),
+        # }
+        # return train_log
+        # loss = TODO
         return loss.item()
