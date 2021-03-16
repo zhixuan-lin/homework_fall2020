@@ -86,8 +86,18 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
 
     # query the policy with observation(s) to get selected action(s)
     def get_action(self, obs: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
         # TODO: get this from hw1
+        if len(obs.shape) > 1:
+            observation = obs
+        else:
+            observation = obs[None]
+
+        # TODO return the action that the policy prescribes
+        # Note, not differentiable.
+        with torch.no_grad():
+            obs = torch.FloatTensor(observation, device=ptu.device)
+            action = ptu.to_numpy(self.forward(obs).sample())
+        return action
 
     ####################################
     ####################################
@@ -104,6 +114,14 @@ class MLPPolicy(BasePolicy, nn.Module, metaclass=abc.ABCMeta):
     def forward(self, observation: torch.FloatTensor):
         raise NotImplementedError
         # TODO: get this from hw1
+        if self.discrete:
+            logits = self.logits_na(observation)
+            action_distribution = torch.distributions.Categorical(logits=logits)
+        else:
+            mean = self.mean_net(observation)
+            action_distribution = torch.distributions.Normal(mean, torch.exp(self.logstd))
+
+        return action_distribution
 
     ####################################
     ####################################

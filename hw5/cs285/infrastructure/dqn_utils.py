@@ -206,8 +206,10 @@ def atari_optimizer(num_timesteps):
 def pointmass_optimizer():
     return OptimizerSpec(
         constructor=optim.Adam,
+        # I don't know why they are using lr=1. I'm gonna change this.
         optim_kwargs=dict(
             lr=1,
+            # lr=1e-3,
         ),
         learning_rate_schedule=lambda epoch: 1e-3,  # keep init learning rate
     )

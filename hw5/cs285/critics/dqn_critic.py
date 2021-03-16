@@ -57,8 +57,53 @@ class DQNCritic(BaseCritic):
             returns:
                 nothing
         """
-        raise NotImplementedError
         # TODO: Get this from homework 3
+        ob_no = ptu.from_numpy(ob_no)
+        ac_na = ptu.from_numpy(ac_na).to(torch.long)
+        next_ob_no = ptu.from_numpy(next_ob_no)
+        reward_n = ptu.from_numpy(reward_n)
+        terminal_n = ptu.from_numpy(terminal_n)
+
+        # (B, D_ob) -> (B, N_action) -> (B,)
+        qa_t_values = self.q_net(ob_no)
+        q_t_values = torch.gather(qa_t_values, 1, ac_na.unsqueeze(1)).squeeze(1)
+        
+        # TODO compute the Q-values from the target network 
+        # (B, N_action) -> (B,)
+        with torch.no_grad():
+            qa_tp1_values = self.q_net_target(next_ob_no)
+
+        if self.double_q:
+            # You must fill this part for Q2 of the Q-learning portion of the homework.
+            # In double Q-learning, the best action is selected using the Q-network that
+            # is being updated, but the Q-value for this action is obtained from the
+            # target Q-network. See page 5 of https://arxiv.org/pdf/1509.06461.pdf for more details.
+            # (B, 1)
+            with torch.no_grad():
+                qa_tp1_values_online = self.q_net(next_ob_no)
+            actions = torch.argmax(qa_tp1_values_online, dim=1, keepdim=True)
+            q_tp1 = torch.gather(qa_tp1_values, dim=1, index=actions)
+            q_tp1 = q_tp1.squeeze(dim=1)
+        else:
+            q_tp1, _ = qa_tp1_values.max(dim=1)
+
+        # TODO compute targets for minimizing Bellman error
+        # HINT: as you saw in lecture, this would be:
+            #currentReward + self.gamma * qValuesOfNextTimestep * (not terminal)
+        target = reward_n + self.gamma * q_tp1 * (1 - terminal_n)
+        target = target.detach()
+
+        assert q_t_values.shape == target.shape
+        loss = self.loss(q_t_values, target)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        utils.clip_grad_value_(self.q_net.parameters(), self.grad_norm_clipping)
+        self.optimizer.step()
+
+        return {
+            'Training Loss': ptu.to_numpy(loss),
+        }
 
     ####################################
     ####################################
